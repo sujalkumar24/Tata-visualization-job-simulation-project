@@ -1,0 +1,75 @@
+Online Retail — Power BI Build Guide
+Prepared for: CEO & CMO reporting  |  Source: Online_Retail_Data_Set.xlsx  |  Rows after cleaning: 530,104 (of 541,909)
+
+
+STEP 1 — Get Data & Clean (Power Query)
+Load the workbook: Home > Get Data > Excel Workbook > select the sheet with the transactions.
+Apply these transform steps in Power Query Editor (in this order):
+  1. Change Type: set InvoiceDate to Date/Time, Quantity/UnitPrice to Decimal Number, CustomerID to Whole Number.
+  2. Filter out cancellations: Filter InvoiceNo column > Text Filters > Does Not Begin With 'C'.
+  3. Filter Quantity > 0 (removes returns/cancelled-line remnants).
+  4. Filter UnitPrice > 0 (removes free/bad-data rows, ~2.5k rows).
+  5. Add Column > Custom Column: Revenue = [Quantity] * [UnitPrice].
+  6. Add Column > Date > Year, Month (Month Number), Month Name — from InvoiceDate.
+  7. Rename query to 'Sales' and Close & Load To > Data Model (not just worksheet) so it's available for all visuals.
+  Result: 541,909 raw rows -> 530,104 clean rows (11,805 removed: cancellations, negative/zero qty or price).
+
+STEP 2 — Build a Date Table (for proper time-series behaviour)
+Modeling > New Table:
+  DateTable = CALENDAR(MIN(Sales[InvoiceDate]), MAX(Sales[InvoiceDate]))
+Add columns: Year = YEAR([Date]), MonthNo = MONTH([Date]), MonthName = FORMAT([Date],"MMM")
+Mark as Date Table (Table tools > Mark as Date Table), then relate DateTable[Date] (1) -> Sales[InvoiceDate] (many).
+Sort MonthName column by MonthNo (Column tools > Sort by Column) so month names display Jan-Dec, not alphabetically.
+
+STEP 3 — Core DAX Measures
+Total Revenue = SUMX(Sales, Sales[Quantity] * Sales[UnitPrice])
+Total Quantity = SUM(Sales[Quantity])
+Distinct Customers = DISTINCTCOUNT(Sales[CustomerID])
+Revenue 2011 = CALCULATE([Total Revenue], DateTable[Year] = 2011)
+Revenue ex-UK = CALCULATE([Total Revenue], Sales[Country] <> "United Kingdom")
+Qty ex-UK = CALCULATE([Total Quantity], Sales[Country] <> "United Kingdom")
+
+STEP 4 — Q1: CEO monthly revenue trend, 2011 (Line Chart)
+Visual: Line Chart.  Axis = DateTable[MonthName] (sorted by MonthNo).  Values = [Total Revenue].
+Filter pane: DateTable[Year] = 2011 only.
+Add a second line for [Total Quantity] (secondary axis) to correlate order volume with revenue.
+Insight to annotate: Revenue climbs steadily from Feb, jumps sharply Sep-Nov (build-up to Christmas/holiday
+wholesale ordering — many customers are small businesses restocking gift/novelty items), peaking in November
+(~$1.51M) at ~2.9x the February low (~$0.52M). December looks artificially low because the data only runs
+to Dec 9, 2011 (partial month) — flag this caveat to the CEO so it isn't mistaken for a real December drop.
+Recommendation for CEO: use Sep-Nov as the forecast anchor for next year's inventory/staffing ramp-up;
+treat Dec as incomplete, not a genuine seasonal decline.
+
+STEP 5 — Q2: CMO top 10 countries ex-UK, Revenue + Quantity (Clustered Column/Bar Combo)
+Visual: Clustered Column Chart (or Line and Clustered Column Chart for combo).
+Axis = Sales[Country].  Column Values = [Total Revenue].  Line Values (secondary axis) = [Total Quantity].
+Filter pane: Sales[Country] <> 'United Kingdom' ; Filter type = Top N, 10, by [Total Revenue].
+Insight: Netherlands and EIRE (Ireland) lead ex-UK revenue (~$285K, ~$283K) despite Germany/France having
+similar order counts — Netherlands' high quantity (200K units) vs revenue suggests lower average selling
+price / bulk wholesale buyers there. Good cross-check for the CMO before allocating ad spend by country.
+
+STEP 6 — Q3: CMO top 10 customers by revenue, descending (Bar Chart)
+Visual: Bar Chart (horizontal), NOT column — bars sorted top-to-bottom make a 'declining staircase' read
+naturally from highest at top to lowest at bottom, which is exactly what the CMO asked for.
+Axis = Sales[CustomerID] (or a Customer Name if available).  Values = [Total Revenue].
+Sort axis: Sort by [Total Revenue], Descending.  Filter: Top N, 10.
+Insight: Customer 14646 alone drives ~$280K (2.8% of total 2011-only revenue base), and the top 10 customers
+combined are heavily concentrated — a classic 80/20 pattern. Recommend the CMO set these 10 up in a VIP/
+account-management tier (dedicated support, early access, loyalty perks) since losing even one is material.
+
+STEP 7 — Q4: CEO global demand ex-UK, single view (Filled/Choropleth Map)
+Visual: Map / Filled Map (choropleth).  Location = Sales[Country].  Color saturation = [Total Quantity].
+Filter pane: Sales[Country] <> 'United Kingdom'.
+Why a map, not a bar chart: the CEO explicitly wants the whole world in ONE view with no scrolling/hover —
+a choropleth shows every country's relative demand by color intensity at a glance, which a long bar chart
+(37 ex-UK countries) cannot do without scrolling. Add Data Labels showing Quantity directly on larger
+countries via a Card/Tooltip-free label if the map visual supports it, or pair with a compact Top-15 table.
+Insight: Netherlands, EIRE (Ireland), Germany, France and Australia are the clear ex-UK demand leaders
+(each >80K units). These are the strongest candidates for a European (NL/DE/FR/IE) expansion push, with
+Australia as the standout non-EU opportunity worth a separate regional strategy.
+
+STEP 8 — Report Layout
+Page 1 'Executive Overview': KPI cards (Total Revenue, Total Quantity, Distinct Customers) + Q1 line chart.
+Page 2 'CMO — Customers & Countries': Q2 combo chart + Q3 bar chart side by side.
+Page 3 'CEO — Expansion Opportunity': Q4 map, full page.
+Add a Country slicer and a Date (Year) slicer to all pages for interactivity.
